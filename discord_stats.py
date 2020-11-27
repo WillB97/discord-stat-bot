@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
+import json
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
@@ -20,6 +21,20 @@ GUILD_ID = 257120601259507712
 # prefix of the role to give the user assigned to a team
 TEAM_PREFIX = ''
 
+# file to store messages being dynamically updated between reboots
+SUBSCRIBE_MSG_FILE = 'subscribed_messages.json'
+
+class SubscribedMessage:
+    def __init__(self,channel_id,message_id):
+        self.channel_id = channel_id
+        self.message_id = message_id
+    def __eq__(self,comp):
+        return (self.channel_id == comp.channel_id and self.message_id == comp.message_id)
+
+def SubscribedMessage_load(dct):
+    if tuple(dct.keys()) == ('channel_id','message_id'):
+        return SubscribedMessage(dct['channel_id'],dct['message_id'])
+    return dct
 
 class TeamData:
     "Stores the TLA, number of members and presence of a team leader for a team"
@@ -37,6 +52,7 @@ class TeamData:
     def has_leader(self) -> bool:
         return self.leader
 
+subscribed_messages:List[SubscribedMessage] = []
 
 class StatBot(commands.Bot):
     teams_data:List[TeamData] = []
@@ -49,6 +65,7 @@ class StatBot(commands.Bot):
         print(self.user.name)
         print(self.user.id)
         print('------')
+        self.admin_role = discord.utils.get(self.get_guild(GUILD_ID).roles,name=ADMIN_ROLE)
 
         if len(sys.argv) > 1 and sys.argv[1] == 'dump':
             self.gen_team_memberships()
@@ -58,6 +75,33 @@ class StatBot(commands.Bot):
             print('------')
             print(self.team_statistics())
             await self.close()
+
+    async def on_raw_reaction_add(self, payload):
+        if not SubscribedMessage(payload.channel_id, payload.message_id) in subscribed_messages:  # is message in subscribed list
+            return
+        if payload.emoji.name != '\N{CROSS MARK}':
+            return
+        if not self.admin_role in payload.member.roles:
+            return
+        msg_channel = await self.fetch_channel(payload.channel_id)
+        msg = await msg_channel.fetch_message(payload.message_id)
+        await msg.delete()  # remove message
+        subscribed_messages.remove(SubscribedMessage(payload.channel_id, payload.message_id))  # remove ID from subscription list
+        with open(SUBSCRIBE_MSG_FILE, 'w') as f:
+            json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
+
+    async def on_member_update(self, before, after):
+        self.gen_team_memberships()
+        message = '```\n' + self.msg_str() + '\n```'
+        for sub_msg in subscribed_messages: # edit all subscribed messages
+            try:
+                msg_channel = await self.fetch_channel(sub_msg.channel_id)
+                msg = await msg_channel.fetch_message(sub_msg.message_id)
+                await msg.edit(content=message)
+            except AttributeError:  # message is no longer available
+                subscribed_messages.remove(sub_msg)
+                with open(SUBSCRIBE_MSG_FILE, 'w') as f:
+                    json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
 
     def gen_team_memberships(self) -> None:
         self.teams_data.clear() # reset list on each invocation
@@ -119,32 +163,68 @@ class StatBot(commands.Bot):
         messages += [f'Min team size: {min_team[1]} ({min_team[0]})']
         messages += [f'Average team size: {avg_team:.1f}']
         messages += [f'Average school members: {avg_school:.1f}']
-        # messages += [f'Average school team size: {avg_school_team}']
+        # messages += [f'Average school team size: {avg_school_team:.1f}']
         return '\n'.join(messages)
 
+    def msg_str(self, members=True, warnings=True, statistics=False) -> str:
+        messages:List[str] = []
+        if members:
+            messages += [self.team_memberships()]
+            messages += ['']
+        if warnings:
+            messages += [self.team_warnings()]
+            messages += ['']
+        if statistics:
+            messages += [self.team_warnings()]
+            messages += ['']
+        return '\n'.join(messages)
 
 load_dotenv()
 
 intents = discord.Intents.default()
 intents.members = True
+intents.reactions = True
 bot = StatBot(intents=intents, command_prefix='~')
 
 @bot.command()
 @commands.has_role(ADMIN_ROLE)
 async def stats(ctx):
     bot.gen_team_memberships()
-    messages:List[str] = ['```']
-    messages += [bot.team_memberships()]
-    messages += [' ']
-    messages += [bot.team_warnings()]
-    messages += ['```']
+    message = bot.msg_str()
     try:
-        await ctx.send('\n'.join(messages))
+        await ctx.send('```\n' + message + '\n```')
     except discord.Forbidden as e:
         print('Unable to respond to discord channel')
         print(e)
     except discord.HTTPException as e:
         print('Unable to connect to discord server')
         print(e)
+
+@bot.command()
+@commands.has_role(ADMIN_ROLE)
+async def stats_subscribe(ctx):
+    bot.gen_team_memberships()
+    message = bot.msg_str()
+    try:  # send normal message
+        bot_message = await ctx.send('```\n' + message + '\n```')
+    except discord.Forbidden as e:
+        print('Unable to respond to discord channel')
+        print(e)
+        return
+    except discord.HTTPException as e:
+        print('Unable to connect to discord server')
+        print(e)
+        return
+    sub_msg = SubscribedMessage(bot_message.channel.id,bot_message.id)
+    subscribed_messages.append(sub_msg)
+    with open(SUBSCRIBE_MSG_FILE, 'w') as f:
+        json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
+
+try:
+    with open(SUBSCRIBE_MSG_FILE) as f:
+        subscribed_messages = json.load(f, object_hook=SubscribedMessage_load)
+except (json.JSONDecodeError, FileNotFoundError) as e:
+    with open(SUBSCRIBE_MSG_FILE, 'w') as f:
+        f.write('[]')
 
 bot.run(os.getenv('DISCORD_TOKEN'))
