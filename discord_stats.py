@@ -153,17 +153,36 @@ class StatBot(commands.Bot):
 
         avg_team:int = num_members / num_teams
         avg_school:int = num_members / num_schools
-        avg_school_team:int = 0
-        #TODO: max avg team size per school
+        avg_school_team:Tuple[str,float] = ('',0)  # initial value
+        last_TLA = ['',0,0]
+        for team in self.teams_data:
+            if not team.TLA[-1].isdigit():  # single team school
+                if team.members > avg_school_team[1]:
+                    avg_school_team = (team.TLA,team.members)
+            else:  # multi-team school
+                if last_TLA[0] != team.TLA[:-1]:
+                    avg_members = last_TLA[1]/max(last_TLA[2],1)
+                    if avg_members > avg_school_team[1]:
+                        avg_school_team = (last_TLA[0],avg_members)
+                    last_TLA[1] = 0
+                    last_TLA[2] = 0
+                last_TLA[0] = team.TLA[:-1]
+                last_TLA[1] += team.members
+                last_TLA[2] += 1  # accumulate average
+        if self.teams_data[-1].TLA[-1].isdigit():  #make sure final team is parsed
+            avg_members = last_TLA[1]/max(last_TLA[2],1)
+            if avg_members > avg_school_team[1]:
+                avg_school_team = (last_TLA[0],avg_members)
 
         messages:List[str] = []
         messages += [f'Total teams: {num_teams}']
         messages += [f'Total schools: {num_schools}']
+        messages += [f'Total students: {num_members}']
         messages += [f'Max team size: {max_team[1]} ({max_team[0]})']
         messages += [f'Min team size: {min_team[1]} ({min_team[0]})']
         messages += [f'Average team size: {avg_team:.1f}']
         messages += [f'Average school members: {avg_school:.1f}']
-        # messages += [f'Average school team size: {avg_school_team:.1f}']
+        messages += [f'Max team size, school average: {avg_school_team[1]:.1f} ({avg_school_team[0]})']
         return '\n'.join(messages)
 
     def msg_str(self, members=True, warnings=True, statistics=False) -> str:
@@ -175,7 +194,7 @@ class StatBot(commands.Bot):
             messages += [self.team_warnings()]
             messages += ['']
         if statistics:
-            messages += [self.team_warnings()]
+            messages += [self.team_statistics()]
             messages += ['']
         return '\n'.join(messages)
 
