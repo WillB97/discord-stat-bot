@@ -25,15 +25,25 @@ TEAM_PREFIX = ''
 SUBSCRIBE_MSG_FILE = 'subscribed_messages.json'
 
 class SubscribedMessage:
-    def __init__(self,channel_id,message_id):
+    def __init__(self,channel_id,message_id,members=True,warnings=True,stats=False):
         self.channel_id = channel_id
         self.message_id = message_id
+        self.members = members
+        self.warnings = warnings
+        self.stats = stats
+
     def __eq__(self,comp):
         return (self.channel_id == comp.channel_id and self.message_id == comp.message_id)
 
 def SubscribedMessage_load(dct):
-    if tuple(dct.keys()) == ('channel_id','message_id'):
-        return SubscribedMessage(dct['channel_id'],dct['message_id'])
+    if tuple(dct.keys()) == ('channel_id','message_id','members','warnings','stats'):
+        return SubscribedMessage(
+            dct['channel_id'],
+            dct['message_id'],
+            dct['members'],
+            dct['warnings'],
+            dct['stats']
+        )
     return dct
 
 class TeamData:
@@ -92,8 +102,12 @@ class StatBot(commands.Bot):
 
     async def on_member_update(self, before, after):
         self.gen_team_memberships()
-        message = '```\n' + self.msg_str() + '\n```'
         for sub_msg in subscribed_messages: # edit all subscribed messages
+            message = '```\n' + self.msg_str(
+                sub_msg.members,
+                sub_msg.warnings,
+                sub_msg.stats
+            ) + '\n```'
             try:
                 msg_channel = await self.fetch_channel(sub_msg.channel_id)
                 msg = await msg_channel.fetch_message(sub_msg.message_id)
@@ -244,13 +258,14 @@ async def stats(ctx,*args):
 
 @bot.command()
 @commands.has_role(ADMIN_ROLE)
-async def stats_subscribe(ctx):
+async def stats_subscribe(ctx,*args):
     bot.gen_team_memberships()
-    message = bot.msg_str()
+    members,warnings,stats = bot.process_message_options(args)
+    message = bot.msg_str(members,warnings,stats)
     bot_message = await bot.send_response(ctx,message)
     if bot_message is None:
         return
-    sub_msg = SubscribedMessage(bot_message.channel.id,bot_message.id)
+    sub_msg = SubscribedMessage(bot_message.channel.id,bot_message.id,members,warnings,stats)
     subscribed_messages.append(sub_msg)
     with open(SUBSCRIBE_MSG_FILE, 'w') as f:
         json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
