@@ -61,6 +61,9 @@ class TeamData:
     
     def has_leader(self) -> bool:
         return self.leader
+    
+    def is_primary(self) -> bool:
+        return not self.TLA[-1].isdigit() or self.TLA[-1] == 1
 
 subscribed_messages:List[SubscribedMessage] = []
 
@@ -143,10 +146,15 @@ class StatBot(commands.Bot):
         return '\n'.join(messages)
 
     def team_warnings(self) -> str:
+        empty_primary_teams:List[TeamData] = [team for team in self.empty_teams if team.is_primary()]
+        primary_leader_only:List[TeamData] = [team for team in self.leader_only if team.is_primary()]
         messages:List[str] = []
         messages += [f'Empty teams: {len(self.empty_teams)}']
         messages += [f'Teams without leaders: {len(self.missing_leaders)}']
         messages += [f'Teams with only leaders: {len(self.leader_only)}']
+        messages += ['']
+        messages += [f'Empty primary teams: {len(empty_primary_teams)}']
+        messages += [f'Primary teams with only leaders: {len(primary_leader_only)}']
         return '\n'.join(messages)
     
     def team_statistics(self) -> str:
@@ -158,7 +166,7 @@ class StatBot(commands.Bot):
         max_team:Tuple[str,int] = ('',0)  # initial value
         for team in self.teams_data:
             # only count the first team from each school
-            if team.TLA[-1].isdigit() and team.TLA[-1] != 1:
+            if not team.is_primary():
                 num_schools -= 1
             if team.members > max_team[1]:
                 max_team = (team.TLA,team.members)
