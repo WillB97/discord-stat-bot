@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 import discord.utils
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 
 # ID of the role assigned to team leaders
@@ -198,6 +198,35 @@ class StatBot(commands.Bot):
             messages += ['']
         return '\n'.join(messages)
 
+    async def send_response(self, ctx, message:str) -> Optional[discord.Message]:
+        try:  # send normal message
+            bot_message = await ctx.send('```\n' + message + '\n```')
+        except discord.Forbidden as e:
+            print('Unable to respond to discord channel')
+            print(e)
+            return None
+        except discord.HTTPException as e:
+            print('Unable to connect to discord server')
+            print(e)
+            return None
+        return bot_message
+
+    def process_message_options(self,args) -> Tuple[bool,bool,bool]:
+        # TODO: add help function for this
+        display_membership = False
+        display_warnings = False
+        display_stats = False
+        if not len(args):
+            return (True,True,False)
+        for arg in args:
+            if arg == 'members':
+                display_membership = True
+            elif arg == 'warnings':
+                display_warnings = True
+            elif arg == 'stats':
+                display_stats = True
+        return (display_membership,display_warnings,display_stats)
+
 load_dotenv()
 
 intents = discord.Intents.default()
@@ -207,32 +236,19 @@ bot = StatBot(intents=intents, command_prefix='~')
 
 @bot.command()
 @commands.has_role(ADMIN_ROLE)
-async def stats(ctx):
+async def stats(ctx,*args):
     bot.gen_team_memberships()
-    message = bot.msg_str()
-    try:
-        await ctx.send('```\n' + message + '\n```')
-    except discord.Forbidden as e:
-        print('Unable to respond to discord channel')
-        print(e)
-    except discord.HTTPException as e:
-        print('Unable to connect to discord server')
-        print(e)
+    members,warnings,stats = bot.process_message_options(args)
+    message = bot.msg_str(members,warnings,stats)
+    await bot.send_response(ctx,message)
 
 @bot.command()
 @commands.has_role(ADMIN_ROLE)
 async def stats_subscribe(ctx):
     bot.gen_team_memberships()
     message = bot.msg_str()
-    try:  # send normal message
-        bot_message = await ctx.send('```\n' + message + '\n```')
-    except discord.Forbidden as e:
-        print('Unable to respond to discord channel')
-        print(e)
-        return
-    except discord.HTTPException as e:
-        print('Unable to connect to discord server')
-        print(e)
+    bot_message = await bot.send_response(ctx,message)
+    if bot_message is None:
         return
     sub_msg = SubscribedMessage(bot_message.channel.id,bot_message.id)
     subscribed_messages.append(sub_msg)
