@@ -10,16 +10,16 @@ from typing import List, Tuple, Optional
 
 
 # ID of the role assigned to team leaders
-LEADER_ROLE = 313317097222569984
+LEADER_ROLE = 777598561374175252
 
 # name of the role able to execute the command
-ADMIN_ROLE = 'Barber'
+ADMIN_ROLE = 'Blue Shirt'
 
 # ID of the server to be surveyed
-GUILD_ID = 257120601259507712
+GUILD_ID = 775497131057741836
 
 # prefix of the role to give the user assigned to a team
-TEAM_PREFIX = ''
+TEAM_PREFIX = 'team-'
 
 # file to store messages being dynamically updated between reboots
 SUBSCRIBE_MSG_FILE = 'subscribed_messages.json'
