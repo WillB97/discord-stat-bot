@@ -54,7 +54,7 @@ class TeamData:
         self.leader = False
     
     def __repr__(self) -> str:
-        data_str = f'{self.TLA:<30} {self.members:>2}'
+        data_str = f'{self.TLA:<15} {self.members:>2}'
         if self.leader == False:
             data_str += '  No leader'
         return data_str
@@ -98,6 +98,7 @@ class StatBot(commands.Bot):
             return
         msg_channel = await self.fetch_channel(payload.channel_id)
         msg = await msg_channel.fetch_message(payload.message_id)
+        print(f'Removing message {msg.content} from {msg.author.name}')
         await msg.delete()  # remove message
         subscribed_messages.remove(SubscribedMessage(payload.channel_id, payload.message_id))  # remove ID from subscription list
         with open(SUBSCRIBE_MSG_FILE, 'w') as f:
@@ -105,6 +106,7 @@ class StatBot(commands.Bot):
 
     async def on_member_update(self, before, after):
         self.gen_team_memberships()
+        print('Updating membership messages')
         for sub_msg in subscribed_messages: # edit all subscribed messages
             message = '```\n' + self.msg_str(
                 sub_msg.members,
@@ -277,6 +279,15 @@ async def stats_subscribe(ctx,*args):
     subscribed_messages.append(sub_msg)
     with open(SUBSCRIBE_MSG_FILE, 'w') as f:
         json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
+
+@bot.command()
+@commands.is_owner()
+async def bump(ctx):
+    await bot.on_member_update(bot.user,bot.user)
+    try:
+        await ctx.message.delete()
+    except commands.errors.CommandInvokeError:
+        pass
 
 try:
     with open(SUBSCRIBE_MSG_FILE) as f:
