@@ -94,7 +94,7 @@ class StatBot(commands.Bot):
             return
         if payload.emoji.name != '\N{CROSS MARK}':
             return
-        if not self.admin_role in payload.member.roles:
+        if not self.is_owner(payload.member) and not self.admin_role in payload.member.roles:
             return
         msg_channel = await self.fetch_channel(payload.channel_id)
         msg = await msg_channel.fetch_message(payload.message_id)
@@ -136,7 +136,9 @@ class StatBot(commands.Bot):
             if len(leaders) > 0:
                 team_data.leader = True
             self.teams_data.append(team_data)
-        
+
+        self.teams_data.reverse() # team tags appear to be in reverse alphabetical
+
         self.empty_teams = [team for team in self.teams_data if not team.leader and team.members == 0]
         self.leader_only = [team for team in self.teams_data if team.leader and team.members == 0]
         self.missing_leaders = [team for team in self.teams_data if not team.leader and team.members > 0]
