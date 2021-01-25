@@ -1,0 +1,17 @@
+# Move to /etc/systemd/system/discord_stats.service
+[Unit]
+Description=Start discord stats bot
+Requires=network.target local-fs.target
+After=network.target local-fs.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=idle
+KillMode=none
+User=root
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 discord_stats.py
+WorkingDirectory=/root/discord-stat-bot
+Restart=on-failure

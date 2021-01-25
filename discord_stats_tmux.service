@@ -1,0 +1,17 @@
+# Move to /etc/systemd/system/discord_stats_tmux.service
+[Unit]
+Description=Start discord stats bot in tmux
+Requires=network.target local-fs.target
+After=network.target local-fs.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=forking
+KillMode=none
+User=root
+ExecStart=/usr/bin/tmux new-session -d -c /root/discord-stat-bot -s discord-stats -n discord-stats "python3 discord_stats.py"
+ExecStop=/usr/bin/tmux send-keys -t discord-stats ^c
+WorkingDirectory=/root/discord-stat-bot
+Restart=on-failure
