@@ -10,7 +10,7 @@ from typing import List, Tuple, Optional
 
 
 # ID of the role assigned to team leaders
-LEADER_ROLE = 900501415972179977
+LEADER_ROLE = 900501415972179976
 
 # name of the role able to execute the command
 ADMIN_ROLE = 'Blue Shirt'
