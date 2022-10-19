@@ -10,13 +10,13 @@ from typing import List, Tuple, Optional
 
 
 # ID of the role assigned to team leaders
-LEADER_ROLE = 900501415972179976
+LEADER_ROLE = 1026134973280964686
 
 # name of the role able to execute the command
 ADMIN_ROLE = 'Blue Shirt'
 
 # ID of the server to be surveyed
-GUILD_ID = 900501415548579842
+GUILD_ID = 1026134973205463070
 
 # prefix of the role to give the user assigned to a team
 TEAM_PREFIX = 'team-'
