@@ -13,5 +13,12 @@ Stats, shows the overall statistics such as average team size.
 
 Alternatively the statistics can be printed to console by running `discord_stats.py dump` which will immediately exit the bot after the statistics have been generated
 
+## Required Bot Scope
+
+When inviting the bot it requires:
+
+- Send Messages
+- Read Message History
+
 ## Future functionality
 - Add ability for owner to use commands in DM channel
