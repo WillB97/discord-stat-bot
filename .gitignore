@@ -1,6 +1,7 @@
 .vscode/*
 log.log
 .env
+venv/
 discord_env/
 subscribed_messages.json
 Stat-bot.png
