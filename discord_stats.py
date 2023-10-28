@@ -1,301 +1,442 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+"""A bot to generate statistics for the discord server."""
+from __future__ import annotations
+
+import json
 import os
 import sys
-import json
-from dotenv import load_dotenv
+from collections import defaultdict
+from statistics import mean
+from typing import Any, Dict, List, NamedTuple, Optional, Union
+
 import discord
-from discord.ext import commands
 import discord.utils
-from typing import List, Tuple, Optional
+from discord import app_commands
+from dotenv import load_dotenv
 
-
-# ID of the role assigned to team leaders
-LEADER_ROLE = 1026134973280964686
-
-# name of the role able to execute the command
-ADMIN_ROLE = 'Blue Shirt'
-
-# ID of the server to be surveyed
-GUILD_ID = 1026134973205463070
-
-# prefix of the role to give the user assigned to a team
-TEAM_PREFIX = 'team-'
+# name of key roles for the server
+ADMIN_ROLE = 'Blueshirt'  # admins can use the bot
+LEADER_ROLE = 'Team Supervisor'  # leaders are excluded from the team member count
+TEAM_PREFIX = 'team-'  # prefix of role names for teams
 
 # file to store messages being dynamically updated between reboots
 SUBSCRIBE_MSG_FILE = 'subscribed_messages.json'
+SUBSCRIBED_MESSAGES: List['SubscribedMessage'] = []
 
-class SubscribedMessage:
-    def __init__(self,channel_id,message_id,members=True,warnings=True,stats=False):
-        self.channel_id = channel_id
-        self.message_id = message_id
-        self.members = members
-        self.warnings = warnings
-        self.stats = stats
 
-    def __eq__(self,comp):
-        return (self.channel_id == comp.channel_id and self.message_id == comp.message_id)
+class SubscribedMessage(NamedTuple):
+    """A message that is updated when the server statistics change."""
 
-def SubscribedMessage_load(dct):
-    if tuple(dct.keys()) == ('channel_id','message_id','members','warnings','stats'):
-        return SubscribedMessage(
-            dct['channel_id'],
-            dct['message_id'],
-            dct['members'],
-            dct['warnings'],
-            dct['stats']
+    channel_id: int
+    message_id: int
+    members: bool = True
+    warnings: bool = True
+    stats: bool = False
+
+    @classmethod
+    def load(cls, dct: Dict[str, Any]) -> Union[SubscribedMessage, Dict[str, Any]]:
+        """Load a SubscribedMessage object from a dictionary."""
+        if tuple(dct.keys()) == cls._fields:
+            return cls(
+                dct['channel_id'],
+                dct['message_id'],
+                dct['members'],
+                dct['warnings'],
+                dct['stats']
+            )
+        return dct
+
+    def __eq__(self, comp: object) -> bool:
+        if not isinstance(comp, SubscribedMessage):
+            return False
+        return (
+            self.channel_id == comp.channel_id
+            and self.message_id == comp.message_id
         )
-    return dct
 
-class TeamData:
-    "Stores the TLA, number of members and presence of a team leader for a team"
-    def __init__(self, TLA:str ,members:int=0, leader:bool=False) -> None:
-        self.TLA = TLA
-        self.members = members
-        self.leader = False
-    
-    def __repr__(self) -> str:
-        data_str = f'{self.TLA:<15} {self.members:>2}'
-        if self.leader == False:
-            data_str += '  No leader'
-        return data_str
-    
+
+class TeamData(NamedTuple):
+    """Stores the TLA, number of members and presence of a team leader for a team."""
+
+    TLA: str
+    members: int = 0
+    leader: bool = False
+
     def has_leader(self) -> bool:
+        """Return whether the team has a leader."""
         return self.leader
-    
+
     def is_primary(self) -> bool:
+        """Return whether the team is a primary team."""
         return not self.TLA[-1].isdigit() or self.TLA[-1] == 1
 
-subscribed_messages:List[SubscribedMessage] = []
+    def school(self) -> str:
+        """TLA without the team number."""
+        return ''.join(c for c in self.TLA if c.isalpha())
 
-class StatBot(commands.Bot):
-    teams_data:List[TeamData] = []
-    empty_teams:List[TeamData] = []
-    missing_leaders:List[TeamData] = []
-    leader_only:List[TeamData] = []
+    def __str__(self) -> str:
+        data_str = f'{self.TLA:<15} {self.members:>2}'
+        if self.leader is False:
+            data_str += '  No leader'
+        return data_str
+
+
+class TeamsData(NamedTuple):
+    """A container for a list of TeamData objects."""
+
+    teams_data: List[TeamData]
+
+    def gen_team_memberships(self, guild: discord.Guild, leader_role: discord.Role) -> None:
+        """Generate a list of TeamData objects for the given guild, stored in teams_data."""
+        teams_data = []
+
+        for role in filter(lambda role: role.name.startswith(TEAM_PREFIX), guild.roles):
+            team_data = TeamData(
+                TLA=role.name[len(TEAM_PREFIX):],
+                members=len(list(filter(
+                    lambda member: leader_role not in member.roles,
+                    role.members,
+                ))),
+                leader=len(list(filter(
+                    lambda member: leader_role in member.roles,
+                    role.members,
+                ))) > 0,
+            )
+
+            teams_data.append(team_data)
+
+        teams_data.sort(key=lambda team: team.TLA)  # sort by TLA
+        self.teams_data.clear()
+        self.teams_data.extend(teams_data)
+
+    @property
+    def empty_tlas(self) -> List[str]:
+        """A list of TLAs for teams with no members or leaders."""
+        return [
+            team.TLA
+            for team in self.teams_data
+            if not team.leader and team.members == 0
+        ]
+
+    @property
+    def missing_leaders(self) -> List[str]:
+        """A list of TLAs for teams with no leaders but at least one member."""
+        return [
+            team.TLA
+            for team in self.teams_data
+            if not team.leader and team.members > 0
+        ]
+
+    @property
+    def leader_only(self) -> List[str]:
+        """A list of TLAs for teams with only leaders and no members."""
+        return [
+            team.TLA
+            for team in self.teams_data
+            if team.leader and team.members == 0
+        ]
+
+    @property
+    def empty_primary_teams(self) -> List[str]:
+        """A list of TLAs for primary teams with no members."""
+        return [
+            team.TLA
+            for team in self.teams_data
+            if team.is_primary() and team.TLA in self.empty_tlas
+        ]
+
+    @property
+    def primary_leader_only(self) -> List[str]:
+        """A list of TLAs for primary teams with only leaders."""
+        return [
+            team.TLA
+            for team in self.teams_data
+            if team.is_primary() and team.TLA in self.leader_only
+        ]
+
+    def team_summary(self) -> str:
+        """A summary of the teams."""
+        return '\n'.join([
+            'Members per team',
+            *(
+                str(team)
+                for team in self.teams_data
+            )
+        ])
+
+    def warnings(self) -> str:
+        """A list of warnings for the teams."""
+        return '\n'.join([
+            f'Empty teams: {len(self.empty_tlas)}',
+            f'Teams without leaders: {len(self.missing_leaders)}',
+            f'Teams with only leaders: {len(self.leader_only)}',
+            '',
+            f'Empty primary teams: {len(self.empty_primary_teams)}',
+            f'Primary teams with only leaders: {len(self.primary_leader_only)}',
+        ])
+
+    def statistics(self) -> str:
+        """A list of statistics for the teams."""
+        num_teams: int = len(self.teams_data)
+        member_counts = [team.members for team in self.teams_data]
+        num_members = sum(member_counts)
+        num_schools = len([team for team in self.teams_data if team.is_primary()])
+
+        min_team = min(self.teams_data, key=lambda x: x.members)
+        max_team = max(self.teams_data, key=lambda x: x.members)
+
+        school_members = defaultdict(list)
+        for team in self.teams_data:
+            school_members[team.school()].append(team.members)
+        school_avg = {school: mean(members) for school, members in school_members.items()}
+        max_avg_school, max_avg_size = max(school_avg.items(), key=lambda x: x[1])
+
+        return '\n'.join([
+            f'Total teams: {num_teams}',
+            f'Total schools: {num_schools}',
+            f'Total students: {num_members}',
+            f'Max team size: {max_team.members} ({max_team.TLA})',
+            f'Min team size: {min_team.members} ({min_team.TLA})',
+            f'Average team size: {mean(member_counts):.1f}',
+            f'Average school members: {num_members / num_schools:.1f}',
+            f'Max team size, school average: {max_avg_size:.1f} ({max_avg_school})',
+        ])
+
+
+class StatBot(discord.Client):
+    """A bot to generate statistics for the discord server."""
+
+    teams_data: TeamsData = TeamsData([])
+
+    def __init__(self, *, intents: discord.Intents, **options: Any) -> None:
+        """Initialize the bot."""
+        super().__init__(intents=intents, **options)
+        # Create a command tree to support slash commands
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        """Copies the global commands over to your guild."""
+        guild = discord.Object(id=int(os.getenv('DISCORD_GUILD_ID', '0')))
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
 
     async def on_ready(self) -> None:
-        print('Logged in as')
-        print(self.user.name)
-        print(self.user.id)
-        print('------')
-        self.admin_role = discord.utils.get(self.get_guild(GUILD_ID).roles,name=ADMIN_ROLE)
+        """Print bot information on startup."""
+        if self.user is None:
+            print('Unable to login to discord')
+            await self.close()
+        else:
+            print('Logged in as')
+            print(self.user.name)
+            print(self.user.id)
+            print('------')
+        guild = self.get_guild(int(os.getenv('DISCORD_GUILD_ID', '0')))
+        if guild is None:
+            print('Unable to find guild')
+            await self.close()
+            return
+        else:
+            self.guild = guild
+
+        admin_role = discord.utils.get(self.guild.roles, name=ADMIN_ROLE)
+        leader_role = discord.utils.get(self.guild.roles, name=LEADER_ROLE)
+
+        if admin_role is None or leader_role is None:
+            print('Unable to find admin or leader role')
+            await self.close()
+            exit(1)
+        else:
+            self.admin_role = admin_role
+            self.leader_role = leader_role
+
+        self.teams_data.gen_team_memberships(self.guild, self.leader_role)
 
         if len(sys.argv) > 1 and sys.argv[1] == 'dump':
-            self.gen_team_memberships()
-            print(self.team_memberships())
+            print(self.teams_data.team_summary())
             print('------')
-            print(self.team_warnings())
+            print(self.teams_data.warnings())
             print('------')
-            print(self.team_statistics())
+            print(self.teams_data.statistics())
             await self.close()
+        else:
+            await self.update_subscribed_messages()
 
-    async def on_raw_reaction_add(self, payload):
-        if not SubscribedMessage(payload.channel_id, payload.message_id) in subscribed_messages:  # is message in subscribed list
-            return
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        """Remove subscribed messages by reacting with a cross mark."""
         if payload.emoji.name != '\N{CROSS MARK}':
             return
-        if not self.is_owner(payload.member) and not self.admin_role in payload.member.roles:
+        if SubscribedMessage(payload.channel_id, payload.message_id) not in SUBSCRIBED_MESSAGES:
+            # Ignore for messages not in the subscribed list
             return
-        msg_channel = await self.fetch_channel(payload.channel_id)
-        msg = await msg_channel.fetch_message(payload.message_id)
-        print(f'Removing message {msg.content} from {msg.author.name}')
-        await msg.delete()  # remove message
-        subscribed_messages.remove(SubscribedMessage(payload.channel_id, payload.message_id))  # remove ID from subscription list
-        with open(SUBSCRIBE_MSG_FILE, 'w') as f:
-            json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
+        if payload.member is None:
+            # Ignore for users not in the server
+            return
+        if self.admin_role not in payload.member.roles:
+            # Ignore for users without admin privileges
+            return
 
-    async def on_member_update(self, before, after):
-        self.gen_team_memberships()
-        print('Updating membership messages')
-        for sub_msg in subscribed_messages: # edit all subscribed messages
-            message = '```\n' + self.msg_str(
+        await self.remove_subscribed_message(
+            SubscribedMessage(payload.channel_id, payload.message_id),
+        )
+
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        """Update subscribed messages when a member's roles change."""
+        self.teams_data.gen_team_memberships(self.guild, self.leader_role)
+
+        await self.update_subscribed_messages()
+
+    def _save_subscribed_messages(self) -> None:
+        """Save subscribed messages to file."""
+        with open(SUBSCRIBE_MSG_FILE, 'w') as f:
+            json.dump(
+                [x._asdict() for x in SUBSCRIBED_MESSAGES],
+                f,
+            )
+
+    def add_subscribed_message(self, msg: SubscribedMessage) -> None:
+        """Add a subscribed message to the subscribed list."""
+        SUBSCRIBED_MESSAGES.append(msg)
+        self._save_subscribed_messages()
+
+    async def remove_subscribed_message(self, msg: SubscribedMessage) -> None:
+        """Remove a subscribed message from the channel and subscribed list."""
+        msg_channel = await self.fetch_channel(msg.channel_id)
+        if not hasattr(msg_channel, 'fetch_message'):
+            # ignore for channels that don't support message editing
+            return
+        message = await msg_channel.fetch_message(msg.message_id)
+
+        print(f'Removing message in {message.channel.name} from {message.author.name}')
+        await message.delete()  # remove message from discord
+
+        # remove message from subscription list and save to file
+        SUBSCRIBED_MESSAGES.remove(msg)
+        self._save_subscribed_messages()
+
+    async def update_subscribed_messages(self) -> None:
+        """Update all subscribed messages."""
+        print('Updating subscribed messages')
+        for sub_msg in SUBSCRIBED_MESSAGES:  # edit all subscribed messages
+            message = self.msg_str(
                 sub_msg.members,
                 sub_msg.warnings,
                 sub_msg.stats
-            ) + '\n```'
+            )
+            message = f"```\n{message}\n```"
+
             try:
                 msg_channel = await self.fetch_channel(sub_msg.channel_id)
+                if not hasattr(msg_channel, 'fetch_message'):
+                    # ignore for channels that don't support message editing
+                    continue
                 msg = await msg_channel.fetch_message(sub_msg.message_id)
                 await msg.edit(content=message)
             except AttributeError:  # message is no longer available
-                subscribed_messages.remove(sub_msg)
-                with open(SUBSCRIBE_MSG_FILE, 'w') as f:
-                    json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
+                await self.remove_subscribed_message(sub_msg)
 
-    def gen_team_memberships(self) -> None:
-        self.teams_data.clear() # reset list on each invocation
-        guild:discord.Guild = self.get_guild(GUILD_ID)
-        leader:discord.Role = discord.utils.get(guild.roles, id=LEADER_ROLE)
-        for role in [role for role in guild.roles if role.name.startswith(TEAM_PREFIX)]:
-            team_data = TeamData(
-                TLA = role.name[len(TEAM_PREFIX):],
-                # exclude team leaders from the number of members
-                members = len([member for member in role.members if leader not in member.roles])
-            )
-            leaders:List[discord.Member] = [member for member in role.members if leader in member.roles]
-            if len(leaders) > 0:
-                team_data.leader = True
-            self.teams_data.append(team_data)
-
-        self.teams_data.reverse() # team tags appear to be in reverse alphabetical
-
-        self.empty_teams = [team for team in self.teams_data if not team.leader and team.members == 0]
-        self.leader_only = [team for team in self.teams_data if team.leader and team.members == 0]
-        self.missing_leaders = [team for team in self.teams_data if not team.leader and team.members > 0]
-
-    def team_memberships(self) -> str:
-        messages:List[str] = ['Members per team']
-        for team in self.teams_data:
-            messages += [str(team)]
-        return '\n'.join(messages)
-
-    def team_warnings(self) -> str:
-        empty_primary_teams:List[TeamData] = [team for team in self.empty_teams if team.is_primary()]
-        primary_leader_only:List[TeamData] = [team for team in self.leader_only if team.is_primary()]
-        messages:List[str] = []
-        messages += [f'Empty teams: {len(self.empty_teams)}']
-        messages += [f'Teams without leaders: {len(self.missing_leaders)}']
-        messages += [f'Teams with only leaders: {len(self.leader_only)}']
-        messages += ['']
-        messages += [f'Empty primary teams: {len(empty_primary_teams)}']
-        messages += [f'Primary teams with only leaders: {len(primary_leader_only)}']
-        return '\n'.join(messages)
-    
-    def team_statistics(self) -> str:
-        num_teams:int = len(self.teams_data)
-        num_members:int = sum([team.members for team in self.teams_data])
-        num_schools:int = num_teams
-
-        min_team:Tuple[str,int] = ('',self.teams_data[0].members)  # initial value
-        max_team:Tuple[str,int] = ('',0)  # initial value
-        for team in self.teams_data:
-            # only count the first team from each school
-            if not team.is_primary():
-                num_schools -= 1
-            if team.members > max_team[1]:
-                max_team = (team.TLA,team.members)
-            elif team.members > 0 and team.members < min_team[1]:
-                min_team = (team.TLA,team.members)
-
-        avg_team:int = num_members / num_teams
-        avg_school:int = num_members / num_schools
-        avg_school_team:Tuple[str,float] = ('',0)  # initial value
-        last_TLA = ['',0,0]
-        for team in self.teams_data:
-            if not team.TLA[-1].isdigit():  # single team school
-                if team.members > avg_school_team[1]:
-                    avg_school_team = (team.TLA,team.members)
-            else:  # multi-team school
-                if last_TLA[0] != team.TLA[:-1]:
-                    avg_members = last_TLA[1]/max(last_TLA[2],1)
-                    if avg_members > avg_school_team[1]:
-                        avg_school_team = (last_TLA[0],avg_members)
-                    last_TLA[1] = 0
-                    last_TLA[2] = 0
-                last_TLA[0] = team.TLA[:-1]
-                last_TLA[1] += team.members
-                last_TLA[2] += 1  # accumulate average
-        if self.teams_data[-1].TLA[-1].isdigit():  #make sure final team is parsed
-            avg_members = last_TLA[1]/max(last_TLA[2],1)
-            if avg_members > avg_school_team[1]:
-                avg_school_team = (last_TLA[0],avg_members)
-
-        messages:List[str] = []
-        messages += [f'Total teams: {num_teams}']
-        messages += [f'Total schools: {num_schools}']
-        messages += [f'Total students: {num_members}']
-        messages += [f'Max team size: {max_team[1]} ({max_team[0]})']
-        messages += [f'Min team size: {min_team[1]} ({min_team[0]})']
-        messages += [f'Average team size: {avg_team:.1f}']
-        messages += [f'Average school members: {avg_school:.1f}']
-        messages += [f'Max team size, school average: {avg_school_team[1]:.1f} ({avg_school_team[0]})']
-        return '\n'.join(messages)
-
-    def msg_str(self, members=True, warnings=True, statistics=False) -> str:
-        messages:List[str] = []
-        if members:
-            messages += [self.team_memberships()]
-            messages += ['']
-        if warnings:
-            messages += [self.team_warnings()]
-            messages += ['']
-        if statistics:
-            messages += [self.team_statistics()]
-            messages += ['']
-        return '\n'.join(messages)
-
-    async def send_response(self, ctx, message:str) -> Optional[discord.Message]:
-        try:  # send normal message
-            bot_message = await ctx.send('```\n' + message + '\n```')
-        except discord.Forbidden as e:
-            print('Unable to respond to discord channel')
+    async def send_response(
+        self,
+        ctx: discord.Interaction,
+        message: str,
+    ) -> Optional[discord.Message]:
+        """Respond to an interaction and return the bot's message object."""
+        try:
+            await ctx.response.send_message(f"```\n{message}\n```")
+            bot_message = await ctx.original_response()
+        except discord.NotFound as e:
+            print('Unable to find original message')
             print(e)
-            return None
-        except discord.HTTPException as e:
+        except (discord.HTTPException, discord.ClientException) as e:
             print('Unable to connect to discord server')
             print(e)
-            return None
-        return bot_message
+        else:
+            return bot_message
+        return None
 
-    def process_message_options(self,args) -> Tuple[bool,bool,bool]:
-        # TODO: add help function for this
-        display_membership = False
-        display_warnings = False
-        display_stats = False
-        if not len(args):
-            return (True,True,False)
-        for arg in args:
-            if arg == 'members':
-                display_membership = True
-            elif arg == 'warnings':
-                display_warnings = True
-            elif arg == 'stats':
-                display_stats = True
-        return (display_membership,display_warnings,display_stats)
+    def msg_str(self, members: bool = True, warnings: bool = True, statistics: bool = False) -> str:
+        """Generate a message string for the given options."""
+        return '\n\n'.join([
+            *([self.teams_data.team_summary()] if members else []),
+            *([self.teams_data.warnings()] if warnings else []),
+            *([self.teams_data.statistics()] if statistics else []),
+        ])
 
-load_dotenv()
 
 intents = discord.Intents.default()
 intents.members = True
-intents.reactions = True
-bot = StatBot(intents=intents, command_prefix='~')
+bot = StatBot(intents=intents)
 
-@bot.command()
-@commands.has_role(ADMIN_ROLE)
-async def stats(ctx,*args):
-    bot.gen_team_memberships()
-    members,warnings,stats = bot.process_message_options(args)
-    message = bot.msg_str(members,warnings,stats)
-    await bot.send_response(ctx,message)
 
-@bot.command()
-@commands.has_role(ADMIN_ROLE)
-async def stats_subscribe(ctx,*args):
-    bot.gen_team_memberships()
-    members,warnings,stats = bot.process_message_options(args)
-    message = bot.msg_str(members,warnings,stats)
-    bot_message = await bot.send_response(ctx,message)
+@bot.tree.command()
+@app_commands.describe(
+    members='Display the number of members in each team',
+    warnings='Display warnings about missing leaders and empty teams',
+    stats='Display statistics about the teams',
+)
+@app_commands.checks.has_role(ADMIN_ROLE)
+async def stats(
+    ctx: discord.Interaction,
+    members: bool = False,
+    warnings: bool = False,
+    stats: bool = False,
+) -> None:
+    """Generate statistics for the server and send them to the channel."""
+    if (members, warnings, stats) == (False, False, False):
+        members = True
+        warnings = True
+    message = bot.msg_str(members, warnings, stats)
+
+    await bot.send_response(ctx, message)
+
+
+@bot.tree.command()
+@app_commands.describe(
+    members='Display the number of members in each team',
+    warnings='Display warnings about missing leaders and empty teams',
+    stats='Display statistics about the teams',
+)
+@app_commands.checks.has_role(ADMIN_ROLE)
+async def stats_subscribe(
+    ctx: discord.Interaction,
+    members: bool = False,
+    warnings: bool = False,
+    stats: bool = False,
+) -> None:
+    """Subscribe to updates for statistics for the server and send a subscribed message."""
+    if (members, warnings, stats) == (False, False, False):
+        members = True
+        warnings = True
+    message = bot.msg_str(members, warnings, stats)
+
+    bot_message = await bot.send_response(ctx, message)
     if bot_message is None:
         return
-    sub_msg = SubscribedMessage(bot_message.channel.id,bot_message.id,members,warnings,stats)
-    subscribed_messages.append(sub_msg)
-    with open(SUBSCRIBE_MSG_FILE, 'w') as f:
-        json.dump(subscribed_messages, f, default=lambda x:x.__dict__)
+    bot.add_subscribed_message(SubscribedMessage(
+        bot_message.channel.id,
+        bot_message.id,
+        members,
+        warnings,
+        stats,
+    ))
 
-@bot.command()
-@commands.is_owner()
-async def bump(ctx):
-    await bot.on_member_update(bot.user,bot.user)
+def load_subscribed_messages() -> None:
+    """Load subscribed message details from file."""
+    global SUBSCRIBED_MESSAGES
     try:
-        await ctx.message.delete()
-    except commands.errors.CommandInvokeError:
-        pass
+        with open(SUBSCRIBE_MSG_FILE) as f:
+            SUBSCRIBED_MESSAGES = json.load(f, object_hook=SubscribedMessage.load)
+    except (json.JSONDecodeError, FileNotFoundError):
+        with open(SUBSCRIBE_MSG_FILE, 'w') as f:
+            f.write('[]')
 
-try:
-    with open(SUBSCRIBE_MSG_FILE) as f:
-        subscribed_messages = json.load(f, object_hook=SubscribedMessage_load)
-except (json.JSONDecodeError, FileNotFoundError) as e:
-    with open(SUBSCRIBE_MSG_FILE, 'w') as f:
-        f.write('[]')
 
-bot.run(os.getenv('DISCORD_TOKEN'))
+def main() -> None:
+    """Load environment variables and start the bot."""
+    load_dotenv()
+    load_subscribed_messages()
+
+    bot.run(os.getenv('DISCORD_TOKEN', ''))
+
+
+if __name__ == '__main__':
+    main()
