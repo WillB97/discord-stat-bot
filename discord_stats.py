@@ -7,7 +7,7 @@ import os
 import sys
 from collections import defaultdict
 from statistics import mean
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
 import discord
 import discord.utils
@@ -283,7 +283,10 @@ class StatBot(commands.Bot):
     def _save_subscribed_messages(self) -> None:
         """Save subscribed messages to file."""
         with open(SUBSCRIBE_MSG_FILE, 'w') as f:
-            json.dump(SUBSCRIBED_MESSAGES, f, default=lambda x: x._asdict())
+            json.dump(
+                [x._asdict() for x in SUBSCRIBED_MESSAGES],
+                f,
+            )
 
     def add_subscribed_message(self, msg: SubscribedMessage) -> None:
         """Add a subscribed message to the subscribed list."""
