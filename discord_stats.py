@@ -11,6 +11,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import discord
 import discord.utils
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -208,6 +209,12 @@ class StatBot(commands.Bot):
 
     teams_data: TeamsData = TeamsData([])
 
+    async def setup_hook(self):
+        """Copies the global commands over to your guild."""
+        guild = discord.Object(id=int(os.getenv('DISCORD_GUILD_ID', '0')))
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+
     async def on_ready(self) -> None:
         """Print bot information on startup."""
         if self.user is None:
@@ -319,14 +326,19 @@ class StatBot(commands.Bot):
             except AttributeError:  # message is no longer available
                 await self.remove_subscribed_message(sub_msg)
 
-    async def send_response(self, ctx: commands.Context, message: str) -> Optional[discord.Message]:
-        """Send a message to the channel and return the bot's message object."""
+    async def send_response(
+        self,
+        ctx: discord.Interaction,
+        message: str,
+    ) -> Optional[discord.Message]:
+        """Respond to an interaction and return the bot's message object."""
         try:
-            bot_message = await ctx.send(f"```\n{message}\n```")
-        except discord.Forbidden as e:
-            print('Unable to respond to discord channel')
+            await ctx.response.send_message(f"```\n{message}\n```")
+            bot_message = await ctx.original_message()
+        except discord.NotFound as e:
+            print('Unable to find original message')
             print(e)
-        except discord.HTTPException as e:
+        except (discord.HTTPException, discord.ClientException) as e:
             print('Unable to connect to discord server')
             print(e)
         else:
@@ -365,9 +377,9 @@ intents.message_content = True
 bot = StatBot(intents=intents, command_prefix='~')
 
 
-@bot.command()
-@commands.has_role(ADMIN_ROLE)
-async def stats(ctx: commands.Context, *args: str) -> None:
+@bot.tree.command()
+@app_commands.checks.has_role(ADMIN_ROLE)
+async def stats(ctx: discord.Interaction, *args: str) -> None:
     """Generate statistics for the server and send them to the channel."""
     members, warnings, stats = bot.process_message_options(args)
     message = bot.msg_str(members, warnings, stats)
@@ -375,9 +387,9 @@ async def stats(ctx: commands.Context, *args: str) -> None:
     await bot.send_response(ctx, message)
 
 
-@bot.command()
-@commands.has_role(ADMIN_ROLE)
-async def stats_subscribe(ctx: commands.Context, *args: str) -> None:
+@bot.tree.command()
+@app_commands.checks.has_role(ADMIN_ROLE)
+async def stats_subscribe(ctx: discord.Interaction, *args: str) -> None:
     """Subscribe to updates for statistics for the server and send a subscribed message."""
     members, warnings, stats = bot.process_message_options(args)
     message = bot.msg_str(members, warnings, stats)
