@@ -214,7 +214,7 @@ class StatBot(discord.Client):
         # Create a command tree to support slash commands
         self.tree = app_commands.CommandTree(self)
 
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         """Copies the global commands over to your guild."""
         guild = discord.Object(id=int(os.getenv('DISCORD_GUILD_ID', '0')))
         self.tree.copy_global_to(guild=guild)
@@ -306,7 +306,8 @@ class StatBot(discord.Client):
             return
         message = await msg_channel.fetch_message(msg.message_id)
 
-        print(f'Removing message in {message.channel.name} from {message.author.name}')
+        chan_name = message.channel.name if hasattr(message.channel, 'name') else 'unknown channel'
+        print(f'Removing message in {chan_name} from {message.author.name}')
         await message.delete()  # remove message from discord
 
         # remove message from subscription list and save to file
@@ -367,7 +368,7 @@ intents.members = True
 bot = StatBot(intents=intents)
 
 
-@bot.tree.command()
+@bot.tree.command()  # type:ignore[arg-type]
 @app_commands.describe(
     members='Display the number of members in each team',
     warnings='Display warnings about missing leaders and empty teams',
@@ -389,7 +390,7 @@ async def stats(
     await bot.send_response(ctx, message)
 
 
-@bot.tree.command()
+@bot.tree.command()  # type:ignore[arg-type]
 @app_commands.describe(
     members='Display the number of members in each team',
     warnings='Display warnings about missing leaders and empty teams',
