@@ -7,7 +7,7 @@ import os
 import sys
 from collections import defaultdict
 from statistics import mean
-from typing import Any, Dict, List, Literal, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import discord
 import discord.utils
@@ -379,9 +379,14 @@ bot = StatBot(intents=intents, command_prefix='~')
 
 @bot.tree.command()
 @app_commands.checks.has_role(ADMIN_ROLE)
-async def stats(ctx: discord.Interaction, *args: Literal['members', 'warnings', 'stats']) -> None:
+async def stats(
+    ctx: discord.Interaction,
+    members: bool = True,
+    warnings: bool = True,
+    stats: bool = False,
+) -> None:
     """Generate statistics for the server and send them to the channel."""
-    members, warnings, stats = bot.process_message_options(args)
+    # members, warnings, stats = bot.process_message_options(args)
     message = bot.msg_str(members, warnings, stats)
 
     await bot.send_response(ctx, message)
@@ -389,9 +394,14 @@ async def stats(ctx: discord.Interaction, *args: Literal['members', 'warnings', 
 
 @bot.tree.command()
 @app_commands.checks.has_role(ADMIN_ROLE)
-async def stats_subscribe(ctx: discord.Interaction, *args: Literal['members', 'warnings', 'stats']) -> None:
+async def stats_subscribe(
+    ctx: discord.Interaction,
+    members: bool = True,
+    warnings: bool = True,
+    stats: bool = False,
+) -> None:
     """Subscribe to updates for statistics for the server and send a subscribed message."""
-    members, warnings, stats = bot.process_message_options(args)
+    # members, warnings, stats = bot.process_message_options(args)
     message = bot.msg_str(members, warnings, stats)
 
     bot_message = await bot.send_response(ctx, message)
