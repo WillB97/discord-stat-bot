@@ -15,7 +15,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 # name of key roles for the server
-ADMIN_ROLE = 'Blue Shirt'  # admins can use the bot
+ADMIN_ROLE = 'Blueshirt'  # admins can use the bot
 LEADER_ROLE = 'Team Supervisor'  # leaders are excluded from the team member count
 TEAM_PREFIX = 'team-'  # prefix of role names for teams
 
@@ -259,7 +259,7 @@ class StatBot(commands.Bot):
         if payload.member is None:
             # Ignore for users not in the server
             return
-        if not (self.is_owner(payload.member) or self.admin_role in payload.member.roles):
+        if not (await self.is_owner(payload.member) or self.admin_role in payload.member.roles):
             # Ignore for users without admin privileges
             return
 
@@ -291,7 +291,7 @@ class StatBot(commands.Bot):
             return
         message = await msg_channel.fetch_message(msg.message_id)
 
-        print(f'Removing message {message.content} from {message.author.name}')
+        print(f'Removing message {message.content[:50]}... from {message.author.name}')
         await message.delete()  # remove message from discord
 
         # remove message from subscription list and save to file
