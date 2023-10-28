@@ -271,7 +271,7 @@ class StatBot(discord.Client):
         if payload.member is None:
             # Ignore for users not in the server
             return
-        if not (await self.is_owner(payload.member) or self.admin_role in payload.member.roles):
+        if self.admin_role not in payload.member.roles:
             # Ignore for users without admin privileges
             return
 
