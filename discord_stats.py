@@ -12,7 +12,6 @@ from typing import Any, Dict, List, NamedTuple, Optional, Union
 import discord
 import discord.utils
 from discord import app_commands
-from discord.ext import commands
 from dotenv import load_dotenv
 
 # name of key roles for the server
@@ -204,10 +203,16 @@ class TeamsData(NamedTuple):
         ])
 
 
-class StatBot(commands.Bot):
+class StatBot(discord.Client):
     """A bot to generate statistics for the discord server."""
 
     teams_data: TeamsData = TeamsData([])
+
+    def __init__(self, *, intents: discord.Intents, **options: Any) -> None:
+        """Initialize the bot."""
+        super().__init__(intents=intents, **options)
+        # Create a command tree to support slash commands
+        self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
         """Copies the global commands over to your guild."""
@@ -301,7 +306,7 @@ class StatBot(commands.Bot):
             return
         message = await msg_channel.fetch_message(msg.message_id)
 
-        print(f'Removing message {message.content[:50]}... from {message.author.name}')
+        print(f'Removing message in {message.channel.name} from {message.author.name}')
         await message.delete()  # remove message from discord
 
         # remove message from subscription list and save to file
@@ -359,8 +364,7 @@ class StatBot(commands.Bot):
 
 intents = discord.Intents.default()
 intents.members = True
-intents.message_content = True
-bot = StatBot(intents=intents, command_prefix='~')
+bot = StatBot(intents=intents)
 
 
 @bot.tree.command()
