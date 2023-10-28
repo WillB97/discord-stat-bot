@@ -334,7 +334,7 @@ class StatBot(commands.Bot):
         """Respond to an interaction and return the bot's message object."""
         try:
             await ctx.response.send_message(f"```\n{message}\n```")
-            bot_message = await ctx.original_message()
+            bot_message = await ctx.original_response()
         except discord.NotFound as e:
             print('Unable to find original message')
             print(e)
