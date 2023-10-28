@@ -353,23 +353,6 @@ class StatBot(commands.Bot):
             *([self.teams_data.statistics()] if statistics else []),
         ])
 
-    def process_message_options(self, args: tuple[str, ...]) -> Tuple[bool, bool, bool]:
-        """Process the arguments for the stats command."""
-        # TODO: add help function for this
-        display_membership = False
-        display_warnings = False
-        display_stats = False
-        if len(args) == 0:
-            args = ('members', 'warnings')
-        for arg in args:
-            if arg == 'members':
-                display_membership = True
-            elif arg == 'warnings':
-                display_warnings = True
-            elif arg == 'stats':
-                display_stats = True
-        return (display_membership, display_warnings, display_stats)
-
 
 intents = discord.Intents.default()
 intents.members = True
@@ -378,30 +361,44 @@ bot = StatBot(intents=intents, command_prefix='~')
 
 
 @bot.tree.command()
+@app_commands.describe(
+    members='Display the number of members in each team',
+    warnings='Display warnings about missing leaders and empty teams',
+    stats='Display statistics about the teams',
+)
 @app_commands.checks.has_role(ADMIN_ROLE)
 async def stats(
     ctx: discord.Interaction,
-    members: bool = True,
-    warnings: bool = True,
+    members: bool = False,
+    warnings: bool = False,
     stats: bool = False,
 ) -> None:
     """Generate statistics for the server and send them to the channel."""
-    # members, warnings, stats = bot.process_message_options(args)
+    if (members, warnings, stats) == (False, False, False):
+        members = True
+        warnings = True
     message = bot.msg_str(members, warnings, stats)
 
     await bot.send_response(ctx, message)
 
 
 @bot.tree.command()
+@app_commands.describe(
+    members='Display the number of members in each team',
+    warnings='Display warnings about missing leaders and empty teams',
+    stats='Display statistics about the teams',
+)
 @app_commands.checks.has_role(ADMIN_ROLE)
 async def stats_subscribe(
     ctx: discord.Interaction,
-    members: bool = True,
-    warnings: bool = True,
+    members: bool = False,
+    warnings: bool = False,
     stats: bool = False,
 ) -> None:
     """Subscribe to updates for statistics for the server and send a subscribed message."""
-    # members, warnings, stats = bot.process_message_options(args)
+    if (members, warnings, stats) == (False, False, False):
+        members = True
+        warnings = True
     message = bot.msg_str(members, warnings, stats)
 
     bot_message = await bot.send_response(ctx, message)
