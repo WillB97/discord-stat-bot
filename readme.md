@@ -19,6 +19,7 @@ When inviting the bot it requires:
 
 - Send Messages
 - Read Message History
+- Read Messages/View Channels
 
 ## Future functionality
 - Add ability for owner to use commands in DM channel

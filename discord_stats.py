@@ -56,7 +56,7 @@ class SubscribedMessage(NamedTuple):
 
 
 class TeamData(NamedTuple):
-    """Stores the TLA, number of members and presence of a team leader for a team."""
+    """Stores the TLA, number of members and presence of a team supervisor for a team."""
 
     TLA: str
     members: int = 0
@@ -77,7 +77,7 @@ class TeamData(NamedTuple):
     def __str__(self) -> str:
         data_str = f'{self.TLA:<15} {self.members:>2}'
         if self.leader is False:
-            data_str += '  No leader'
+            data_str += '  No supervisor'
         return data_str
 
 
@@ -111,7 +111,7 @@ class TeamsData(NamedTuple):
 
     @property
     def empty_tlas(self) -> List[str]:
-        """A list of TLAs for teams with no members or leaders."""
+        """A list of TLAs for teams with no members or supervisors."""
         return [
             team.TLA
             for team in self.teams_data
@@ -120,7 +120,7 @@ class TeamsData(NamedTuple):
 
     @property
     def missing_leaders(self) -> List[str]:
-        """A list of TLAs for teams with no leaders but at least one member."""
+        """A list of TLAs for teams with no supervisors but at least one member."""
         return [
             team.TLA
             for team in self.teams_data
@@ -129,7 +129,7 @@ class TeamsData(NamedTuple):
 
     @property
     def leader_only(self) -> List[str]:
-        """A list of TLAs for teams with only leaders and no members."""
+        """A list of TLAs for teams with only supervisors and no members."""
         return [
             team.TLA
             for team in self.teams_data
@@ -147,7 +147,7 @@ class TeamsData(NamedTuple):
 
     @property
     def primary_leader_only(self) -> List[str]:
-        """A list of TLAs for primary teams with only leaders."""
+        """A list of TLAs for primary teams with only supervisors."""
         return [
             team.TLA
             for team in self.teams_data
@@ -168,11 +168,11 @@ class TeamsData(NamedTuple):
         """A list of warnings for the teams."""
         return '\n'.join([
             f'Empty teams: {len(self.empty_tlas)}',
-            f'Teams without leaders: {len(self.missing_leaders)}',
-            f'Teams with only leaders: {len(self.leader_only)}',
+            f'Teams without supervisors: {len(self.missing_leaders)}',
+            f'Teams with only supervisors: {len(self.leader_only)}',
             '',
             f'Empty primary teams: {len(self.empty_primary_teams)}',
-            f'Primary teams with only leaders: {len(self.primary_leader_only)}',
+            f'Primary teams with only supervisors: {len(self.primary_leader_only)}',
         ])
 
     def statistics(self) -> str:
@@ -371,7 +371,7 @@ bot = StatBot(intents=intents)
 @bot.tree.command()  # type:ignore[arg-type]
 @app_commands.describe(
     members='Display the number of members in each team',
-    warnings='Display warnings about missing leaders and empty teams',
+    warnings='Display warnings about missing supervisors and empty teams',
     stats='Display statistics about the teams',
 )
 @app_commands.checks.has_role(ADMIN_ROLE)
@@ -393,7 +393,7 @@ async def stats(
 @bot.tree.command()  # type:ignore[arg-type]
 @app_commands.describe(
     members='Display the number of members in each team',
-    warnings='Display warnings about missing leaders and empty teams',
+    warnings='Display warnings about missing supervisors and empty teams',
     stats='Display statistics about the teams',
 )
 @app_commands.checks.has_role(ADMIN_ROLE)
